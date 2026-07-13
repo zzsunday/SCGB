@@ -1,0 +1,289 @@
+scgb: dRep
+sembin: sembin binnet
+comebin:  
+plsmer:
+genomad:
+
+# need to improve
+1. extract plasmid and chromosome contigs by seqkit, eg: seqkit grep -n -r -f DZ09IN4_p.txt ../02_Assembly/Operams_16/DZ09IN4/nextpolish/genome.nextpolish.fa  > DZ09IN4_p.fasta
+2. binning module need to add drep, eg:dRep dereplicate DrepReference --S_algorithm ANImf -nc .5 -l 10000 -N50W 0 -sizeW 1 --ignoreGenomeQuality --clusterAlg single -g ~/sunda/Single-wastewater/Meta/20251030_checkm_5k/04_ConstructRef/RefwithoutDrep/*fa -p 32
+
+
+# need to improve
+input: 
+1. -fq, cat all single cell squencings reads
+2. -single cell sequencing reads dir 
+3. -c, barcode umi and reads count, count.csv
+4. -b, barcodes.csv, barcodes list
+5. -fa_dir, get dreplicate fasta dir 
+6. -p, plasmid fasta file
+7. meta, barcode corresponding fq file, separator is “\t"
+
+
+
+workflow:
+1. cat all drep fasta eg: cat /public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/04_ConstructRef/DrepReference/dereplicated_bacteria/*fa > all_drep_bacteria_c.fa
+2. map input all cat fastq to all drep fasta. eg: bwa mem -t 32 /public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/05_ContactMap/all_drep_bacteria_c.fa ~/sunda/Single-wastewater/Meta/06_ContactMap/${base}.fq |
+samtools view -b -F 2308 -q 20 | samtools sort -@ 32 -o ${base}/${base}_2.5k_c_mapped_sorted.bam
+3. get every drep fasta path, eg ls /public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/04_ConstructRef/DrepReference/dereplicated_bacteria/*fa > all_binette_bin_c_path.txt. this need to be wrriten by python
+4. get bc with its genome id. python ~/sunda/Single-wastewater/00_Bin/GenerateBc2refFile.py -i all_binette_bin_c_path.txt -o ./
+5. get bc2ref result. eg :python ~/sunda/Single-wastewater/00_Bin/ScBc2ref.py -i DZ09IN4/DZ09IN4_2.5k_c_mapped_sorted.bam -r Genome2id.txt -o DZ09IN4
+6. summary the single cell result and get purity result. eg python ~/sunda/Single-wastewater/00_Bin/SummaryUmiRead.py -i ~/sunda/Single-wastewater/Single/04_CountUmi/DZ09IN4/3000/counts.csv -b ~/sunda/Single-wastewater/Single/04_CountUmi/DZ09IN4/3000/barcodes.csv -r DZ09IN4/bc2ref.csv -j DZ09IN4/tmp_detail.json -o DZ09IN4
+7. bwa index all_plasmid_round2_rep_seq.fasta
+8. mv DZ09IN4/*fa.txt DZ09IN4/BinBcTxt/
+9. python getbc.py to to get each genome corresponding reads
+10. cat each genome reads:cut -f2 ${base}/bc2ref.csv | tail -n +2 | sort | uniq | while read id;
+do
+    #mkdir -p Reads/$id
+    cat ${base}/BinBcTxt/${id}_bc.txt | while read prefix;
+    do
+        cat $PT/${prefix}_merge.fq >> ${base}/Reads/${id}.fq
+        echo "$PT/${prefix}_merge.fq >> ${base}/Reads/${id}.fq"
+    done
+done
+11. map bin reads to plasmid:cut -f2 ${base}/bc2ref.csv | tail -n +2 | sort | uniq | while read id;
+do
+    prefix=$(basename $id)
+    bwa mem -t 16 -M ${PT}/all_plasmid_round2_rep_seq.fasta ${base}/Reads/${prefix}.fq | samtools view -b -F 2308 -q 20 | samtools sort -@ 32 -o ${base}/all_plasmid/BinReads2Plasimid/${base}_p_${prefix}.bam
+done
+12. get contactmap 
+with open("/public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/05_ContactMap/ref.txt") as f:
+    files = f.readlines()
+for file in ${base}/all_plasmid/BinReads2Plasimid/*.bam
+    prefix=basename(file)
+    bin2bc = defaultdict(lambda: defaultdict(int))
+    if os.path.exists(file):
+        if os.stat(file).st_size > 600:
+            logger.info(f"{file} is processing")
+            bam = pysam.AlignmentFile(file, "rb")
+            for align in bam:
+                bc = align.qname.split("_",1)[0]
+                contig = align.reference_name
+                bin2bc[contig][bc] +=1
+            #print(f"{file} is processed")
+            outfile = "DZ09IN4/all_plasmid/BinReads2Plasimid/" + i.strip() + "_p.json"
+            with open(outfile, "w") as json_file:
+                json.dump(bin2bc, json_file, indent=4)
+        else:
+            logger.info(f"{file} exists but is too small (<600B)")
+    else:
+        logger.info(f"{file} does not exist")
+def NoName(path, purity):
+    data1 = load_json(path)
+    #print(data1.keys())
+    
+    drop_bc = defaultdict(lambda: defaultdict())
+    filter_bc = defaultdict(lambda: defaultdict(int))
+    
+    # 预先构建 `Barcode` 到 `Purity` 和 `ReadNum` 的映射字典，避免循环内查询 DataFrame
+    purity_dict = purity.set_index('Barcode')[['Purity', 'ReadNum']].to_dict(orient='index')
+    
+    # 遍历 `data1`
+    for contig, barcodes_dict in data1.items():  # 用 `list()` 以支持 `pop()` 操作
+        #print(contig)
+        for bc in barcodes_dict.keys():  # 用 `list()` 以支持 `pop()` 操作
+            if bc in purity_dict:  # 确保 `bc` 在 `purity_dict` 中
+                purity_value = purity_dict[bc]['Purity']
+                #print(purity_value)
+                read_num = float(purity_dict[bc]['ReadNum'])
+                #exp_reads = float(read_num * purity_value * 0.005/100)
+                exp_reads = max(5,float(read_num * purity_value * 0.005/100))
+                #print(f"{bc} purtiy is {purity_value} and read num is {read_num}")
+                if purity_value <= 99 and purity_value >= 80:
+
+                    #print(f"{bc} exp_read is {exp_reads}")
+                    if barcodes_dict[bc] < exp_reads:
+    
+                        drop_bc[contig][bc] = [barcodes_dict[bc], exp_reads, purity_value, read_num]
+                    else:
+                        #if bc=="TCACATTGCTATAGAGT":
+                           # print(data1[contig][bc], purity)
+                        filter_bc[contig][bc] = data1[contig][bc]
+                           
+                elif purity_value >= 100:
+                    #if bc=="TCACATTGCTATAGAGT":
+                    #       print(data1[contig][bc], purity_value)
+                    #print(path, contig)
+                    filter_bc[contig][bc] = data1[contig][bc]
+                else:
+                    drop_bc[contig][bc] = [barcodes_dict[bc], exp_reads, purity_value, read_num]
+    return data1, filter_bc, drop_bc
+
+def load_json(filename):
+    with open(filename, "r") as f:
+        return json.load(f)
+
+
+# read purity from previous result
+inf_purity = pd.read_csv("/public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k//05_ContactMap/DZ09IN4/purity.tsv", 
+                         sep="\t")
+
+
+inf_raw_list = list()
+inf_filter_list = list()
+#inf_thres_d = list()
+
+inf_raw_d = defaultdict(lambda: defaultdict())
+inf_filter_d = defaultdict(lambda: defaultdict())
+inf_thres_d = defaultdict(lambda: defaultdict())
+
+with open("ref.txt") as f:
+    files = f.readlines()
+for i in files:
+    file = "DZ09IN4/all_plasmid/BinReads2Plasimid/" + i.strip() + "_p.json"
+    #print(file)
+    if os.path.exists(file):
+        #print(file)
+        data, filter_bc, drop_bc = NoName(file, inf_purity)
+        #print(file, len(drop_bc))
+        
+        a = sum(sum(bc_dict.values()) for bc_dict in filter_bc.values())
+    
+        b = {contig: sum(barcodes.values()) for contig, barcodes in filter_bc.items()}
+    
+        inf_raw_d[i.strip()] = a
+        inf_filter_d[i.strip()] = b
+        
+        threshold = a * 0.01
+        for contig, value in b.items():
+            #print(file, contig, threshold, sum({sum(barcodes.values()) for contig, barcodes in data.items()}))
+            if value > threshold and value > 40:
+                inf_thres_d[i.strip()][contig] = b[contig]
+                #print(f"{file} {contig} {value} {threshold}")
+        inf_raw_list.append(a)
+        inf_filter_list.append(b)
+12. write plasmid to genome, set as a module
+rows = []
+for bin_file, inner in inf_thres_d.items():
+    for plasmid_id, readnum in dict(inner).items():  # defaultdict 转普通 dict 以防万一
+        rows.append((bin_file, plasmid_id))
+
+df1 = pd.DataFrame(rows, columns=["Bin", "Plasmid"])
+
+rows = []
+for bin_file, inner in ef_thres_d.items():
+    for plasmid_id, readnum in dict(inner).items():  # defaultdict 转普通 dict 以防万一
+        rows.append((bin_file, plasmid_id))
+
+df2 = pd.DataFrame(rows, columns=["Bin", "Plasmid"])
+# ---- paths (edit if needed) ----
+GENOME_DIR = Path("/public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/04_ConstructRef/DrepReference/dereplicated_bacteria")
+GENOME_SUFFIX = ".fa"
+PLASMID_DB = Path("/public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/02_PredcitPlas/mmseqs/mmseqs_round2/all_plasmid_round2_rep_seq.fasta").expanduser() # make_plasmid_index
+OUT_DIR = Path("/public/home/bh2022044/sunda/Single-wastewater/Meta/20251030_checkm_5k/06_GenomeWihtPlasmid/Reference").expanduser()
+def build_bin_to_plasmids(ref_df: pd.DataFrame):
+    """Return: dict[bin_name] -> list of plasmid headers."""
+    # normalize columns
+    for col in ("Plasmid", "Bin"):
+        if col not in ref_df.columns:
+            raise ValueError(f"Missing column: {col}")
+    # We will match bins by genome stem (filename without suffix) OR by filename
+    ref_df = ref_df.copy()
+    ref_df["Bin_norm"] = ref_df["Bin"].astype(str).str.replace(r"\s+", "", regex=True)
+    d = (
+        ref_df.groupby("Bin_norm")["Plasmid"]
+        .apply(lambda x: [str(i) for i in x.dropna().tolist()])
+        .to_dict()
+    )
+    return d
+
+def make_plasmid_index(fasta_path: Path):
+    """
+    Index the plasmid FASTA by:
+      - full record.id
+      - token before first whitespace in header
+    We provide a tolerant accessor to find records by header.
+    """
+    # Primary index by record.id (up to first whitespace)
+    idx = SeqIO.index(str(fasta_path), "fasta")  # keys are record.id (tokenized)
+    return idx
+
+def find_plasmid_record(idx, key: str):
+    """
+    Try to fetch plasmid by several key variants:
+      - exact key
+      - key up to first whitespace
+      - key up to first pipe '|'
+    """
+    # exact
+    if key in idx:
+        return idx[key]
+    # up to whitespace
+    k_ws = key.split()[0]
+    if k_ws in idx:
+        return idx[k_ws]
+    # up to pipe
+    k_pipe = key.split("|")[0]
+    if k_pipe in idx:
+        return idx[k_pipe]
+    # sometimes headers look like '>gi|...|ref|XYZ|'; try last token
+    parts = key.split("|")
+    if parts:
+        cand = parts[-1].split()[0]
+        if cand in idx:
+            return idx[cand]
+    return None
+
+def write_out(genome_path: Path, records_to_append, out_dir: Path):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_fp = out_dir / genome_path.name
+    #print(out_fp)
+    # Write genome first (verbatim), then append plasmids
+    with open(out_fp, "wb") as w:
+        # copy genome file bytes directly to preserve headers/order
+        with open(genome_path, "rb") as r:
+            w.write(r.read())
+        # ensure a newline between genome and appended plasmids
+    if records_to_append:
+        with open(out_fp, "a", encoding="utf-8", newline="\n") as w_txt:
+            SeqIO.write(records_to_append, w_txt, "fasta")
+
+    return out_fp
+
+def main(ref: pd.DataFrame):
+    bin2plas = build_bin_to_plasmids(ref) # return bin to list of plasmid header
+    plasmid_idx = make_plasmid_index(PLASMID_DB) # get all plasmid headers
+
+    genomes = sorted(GENOME_DIR.glob(f"*{GENOME_SUFFIX}")) # all bacteria chromosome fasta
+    if not genomes:
+        logger.warning(f"No genomes found under {GENOME_DIR} with suffix {GENOME_SUFFIX}")
+
+    # To match: try both stem and filename
+    for g in genomes:
+        print(g)
+        stem = g.stem
+        filename = g.name
+        keys_to_try = {stem, stem + GENOME_SUFFIX}
+
+        matched_bin_key = None
+        for k in keys_to_try:
+            k_norm = k.replace(" ", "")
+            if k_norm in bin2plas:
+                matched_bin_key = k_norm
+                break
+
+        if matched_bin_key is None:
+            # No plasmids: write genome only
+            out_fp = write_out(g, [], OUT_DIR)
+            logger.info(f"[NO PLASMID] Wrote genome only -> {out_fp.name}")
+            continue
+
+        # Collect plasmid SeqRecords
+        plasmid_headers = bin2plas[matched_bin_key] # get plasmid headers
+        records = []
+        missing = []
+        for hdr in plasmid_headers:
+            rec = find_plasmid_record(plasmid_idx, hdr)
+            if rec is None:
+                missing.append(hdr)
+            else:
+                records.append(rec)
+
+        if missing:
+            logger.warning(f"{g.name}: {len(missing)} plasmid header(s) not found in DB: {missing[:5]}{'...' if len(missing)>5 else ''}")
+
+        out_fp = write_out(g, records, OUT_DIR)
+        logger.info(f"[WITH PLASMID] Wrote genome + {len(records)} plasmid(s) -> {out_fp.name}")
+
+    # Close index
+    plasmid_idx.close()

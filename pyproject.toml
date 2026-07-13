@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scgb"
+version = "0.1.0"
+description = "Single-cell-guided metagenomic binning and plasmid-host linkage"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "click",
+    "loguru",
+    "biopython",
+    "pandas",
+    "numpy",
+    "pyyaml",
+    "pysam",
+]
+
+[project.scripts]
+scgb = "scgb.core:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scgb*"]
+

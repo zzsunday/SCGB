@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: scgb
+Version: 0.1.0
+Summary: Single-cell-guided metagenomic binning and plasmid-host linkage
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: click
+Requires-Dist: loguru
+Requires-Dist: biopython
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: pyyaml
+Requires-Dist: pysam
