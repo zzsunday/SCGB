@@ -21,7 +21,7 @@ import pandas as pd
 from Bio import SeqIO
 from loguru import logger
 
-from modules.SummaryBc2Cbin import Bc2Ref, GenerateBc2refFile, Summary
+from scgb.modules.SummaryBc2Cbin import Bc2Ref, GenerateBc2refFile, Summary
 
 
 def q(value: Union[str, Path]) -> str:

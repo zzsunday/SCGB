@@ -17,7 +17,7 @@ from loguru import logger
 from Bio import SeqIO
 import pandas as pd
 
-from modules.FilterFalsePlasmid import split_plasmid_and_chromosome
+from scgb.modules.FilterFalsePlasmid import split_plasmid_and_chromosome
 
 # =============== check tools ===============
 def ensure_file(path_str: Union[str, Path]) -> str:
