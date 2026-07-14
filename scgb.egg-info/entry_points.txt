@@ -1,2 +1,0 @@
-[console_scripts]
-scgb = scgb.core:main

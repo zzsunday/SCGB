@@ -1,7 +1,0 @@
-click
-loguru
-biopython
-pandas
-numpy
-pyyaml
-pysam
